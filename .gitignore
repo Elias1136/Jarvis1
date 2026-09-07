@@ -1,0 +1,10 @@
+# Niemals auf GitHub hochladen!
+.env
+venv/
+__pycache__/
+*.pyc
+*.log
+jarvis_settings.json
+*.zip
+refactor_*.py
+update_env.py
