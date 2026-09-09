@@ -1,158 +1,330 @@
-﻿# ============================================================
-# dashboard.py - Interaktives Terminal-Dashboard
-# Starte mit: python dashboard.py
-# ============================================================
-import sys
-import time
+"""
+dashboard.py – Financial Jarvis Web-Dashboard
+Laeuft parallel zum Discord-Bot auf Port 5000
+Automatische Aktualisierung alle 60 Sekunden
+"""
+from flask import Flask, render_template_string, jsonify
+import threading
+import json
+import os
 from datetime import datetime
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.columns import Columns
-from rich.layout import Layout
-from rich.live import Live
-from rich.text import Text
+from dotenv import load_dotenv
 
-from data_fetcher import (
-    get_all_prices, get_finnhub_news, get_rss_articles,
-    get_earnings_calendar, get_company_financials,
-)
-from ai_analyst import analyze_news, analyze_earnings_report
+load_dotenv()
 
-console = Console()
+app = Flask(__name__)
+
+DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial Jarvis Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0f0f1a; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; }
+        
+        header {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #00d4aa;
+        }
+        header h1 { color: #00d4aa; font-size: 1.8em; }
+        header span { color: #888; font-size: 0.9em; }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            padding: 25px;
+        }
+        
+        .card {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #333355;
+            transition: transform 0.2s;
+        }
+        .card:hover { transform: translateY(-3px); }
+        .card h2 {
+            color: #00d4aa;
+            font-size: 1em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #333355;
+            padding-bottom: 8px;
+        }
+        
+        .stock-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #222244;
+        }
+        .stock-item:last-child { border-bottom: none; }
+        .stock-ticker { font-weight: bold; color: #fff; min-width: 80px; }
+        .stock-price { color: #aaa; }
+        .stock-change { font-weight: bold; min-width: 70px; text-align: right; }
+        .positive { color: #00d4aa; }
+        .negative { color: #ff4757; }
+        
+        .fg-bar-container {
+            background: linear-gradient(to right, #00d4aa, #ffd700, #ff4757);
+            height: 12px;
+            border-radius: 6px;
+            margin: 15px 0;
+            position: relative;
+        }
+        .fg-marker {
+            position: absolute;
+            top: -4px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transform: translateX(-50%);
+            border: 3px solid #0f0f1a;
+        }
+        .fg-score { font-size: 2.5em; font-weight: bold; text-align: center; margin: 10px 0; }
+        .fg-label { text-align: center; font-size: 1.1em; }
+        
+        .news-item {
+            padding: 10px 0;
+            border-bottom: 1px solid #222244;
+            font-size: 0.9em;
+            line-height: 1.4;
+        }
+        .news-item:last-child { border-bottom: none; }
+        .news-source { color: #00d4aa; font-size: 0.8em; margin-bottom: 3px; }
+        
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .stat-box {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+        .stat-value { font-size: 1.4em; font-weight: bold; color: #00d4aa; }
+        .stat-label { font-size: 0.8em; color: #888; margin-top: 4px; }
+        
+        .refresh-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #16213e;
+            border-top: 1px solid #333355;
+            padding: 8px 30px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85em;
+            color: #666;
+        }
+        .live-dot {
+            width: 8px; height: 8px;
+            background: #00d4aa;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        
+        #last-update { color: #00d4aa; }
+        
+        .winner { background: rgba(0, 212, 170, 0.1); border-radius: 6px; padding: 2px 6px; }
+        .loser { background: rgba(255, 71, 87, 0.1); border-radius: 6px; padding: 2px 6px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🤖 Financial Jarvis Dashboard</h1>
+        <span><span class="live-dot"></span>Live • Aktualisierung alle 60 Sekunden</span>
+    </header>
+    
+    <div class="grid" id="main-grid">
+        <!-- Wird dynamisch befuellt -->
+        <div class="card"><h2>Laden...</h2></div>
+    </div>
+    
+    <div class="refresh-bar">
+        <span><span class="live-dot"></span>Jarvis laeuft</span>
+        <span>Letzte Aktualisierung: <span id="last-update">--</span></span>
+        <span>Naechste in: <span id="countdown">60</span>s</span>
+    </div>
+
+    <script>
+        let countdown = 60;
+
+        async function loadData() {
+            try {
+                const resp = await fetch('/api/data');
+                const data = await resp.json();
+                renderDashboard(data);
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString('de-CH');
+                countdown = 60;
+            } catch (e) {
+                console.error('Ladefehler:', e);
+            }
+        }
+
+        function renderDashboard(data) {
+            const grid = document.getElementById('main-grid');
+            grid.innerHTML = '';
+
+            // Fear & Greed
+            const fg = data.fear_greed || { score: 50, label: 'Neutral' };
+            const fgColor = fg.score <= 30 ? '#00d4aa' : fg.score >= 70 ? '#ff4757' : '#ffd700';
+            grid.innerHTML += `
+                <div class="card">
+                    <h2>😱 Fear &amp; Greed Index</h2>
+                    <div class="fg-score" style="color:${fgColor}">${fg.score}</div>
+                    <div class="fg-bar-container">
+                        <div class="fg-marker" style="left:${fg.score}%"></div>
+                    </div>
+                    <div class="fg-label" style="color:${fgColor}">${fg.label}</div>
+                </div>`;
+
+            // Markt-Statistiken
+            const prices = data.prices || [];
+            const winners = prices.filter(p => p.change_pct > 0).length;
+            const losers = prices.filter(p => p.change_pct < 0).length;
+            const bigWinner = prices.sort((a,b) => b.change_pct - a.change_pct)[0];
+            const bigLoser = [...prices].sort((a,b) => a.change_pct - b.change_pct)[0];
+            grid.innerHTML += `
+                <div class="card">
+                    <h2>📊 Markt-Ueberblick</h2>
+                    <div class="stat-grid">
+                        <div class="stat-box">
+                            <div class="stat-value positive">${winners}</div>
+                            <div class="stat-label">Im Plus</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-value negative">${losers}</div>
+                            <div class="stat-label">Im Minus</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-value positive">${bigWinner ? bigWinner.ticker : '-'}</div>
+                            <div class="stat-label">Bester: ${bigWinner ? '+'+bigWinner.change_pct.toFixed(1)+'%' : ''}</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-value negative">${bigLoser ? bigLoser.ticker : '-'}</div>
+                            <div class="stat-label">Schlechtester: ${bigLoser ? bigLoser.change_pct.toFixed(1)+'%' : ''}</div>
+                        </div>
+                    </div>
+                </div>`;
+
+            // Alle Kurse
+            const sortedPrices = [...(data.prices||[])].sort((a,b) => b.change_pct - a.change_pct);
+            let priceHTML = '<div class="card" style="grid-column: span 2"><h2>💹 Live-Kurse (alle Titel)</h2>';
+            priceHTML += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:5px">';
+            for (const p of sortedPrices) {
+                const cls = p.change_pct >= 0 ? 'positive' : 'negative';
+                const sign = p.change_pct >= 0 ? '+' : '';
+                priceHTML += `<div class="stock-item">
+                    <span class="stock-ticker">${p.ticker}</span>
+                    <span class="stock-price">$${p.price.toLocaleString('de-CH', {minimumFractionDigits:2, maximumFractionDigits:2})}</span>
+                    <span class="stock-change ${cls}">${sign}${p.change_pct.toFixed(2)}%</span>
+                </div>`;
+            }
+            priceHTML += '</div></div>';
+            grid.innerHTML += priceHTML;
+
+            // News
+            const news = data.news || [];
+            let newsHTML = '<div class="card"><h2>📰 Aktuelle News</h2>';
+            for (const n of news.slice(0,8)) {
+                newsHTML += `<div class="news-item">
+                    <div class="news-source">${n.source || 'News'}</div>
+                    ${n.title}
+                </div>`;
+            }
+            newsHTML += '</div>';
+            grid.innerHTML += newsHTML;
+        }
+
+        // Countdown
+        setInterval(() => {
+            countdown--;
+            document.getElementById('countdown').textContent = countdown;
+            if (countdown <= 0) loadData();
+        }, 1000);
+
+        // Initial laden
+        loadData();
+    </script>
+</body>
+</html>
+"""
 
 
-def build_price_table(prices):
-    table = Table(title="📊 Markt-Watchlist", border_style="cyan", show_header=True)
-    table.add_column("Ticker",  style="bold white", width=10)
-    table.add_column("Preis",   style="white",      width=12, justify="right")
-    table.add_column("% Tag",   style="white",      width=10, justify="right")
-    table.add_column("Volumen", style="dim",         width=14, justify="right")
-    table.add_column("Quelle",  style="dim",         width=14)
+def get_dashboard_data():
+    """Holt alle Daten fuer das Dashboard"""
+    result = {"prices": [], "fear_greed": {}, "news": [], "updated": datetime.now().isoformat()}
 
-    for p in prices:
-        if not p:
-            continue
-        chg = p.get("change_pct", 0)
-        color = "green" if chg > 0 else "red" if chg < 0 else "white"
-        sign  = "+" if chg > 0 else ""
-        vol   = p.get("volume", 0)
-        vol_str = f"{vol:,}" if vol else "-"
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(__file__))
+        from data_fetcher import get_all_prices, get_rss_articles
 
-        table.add_row(
-            p.get("ticker", ""),
-            f"",
-            f"[{color}]{sign}{chg:.2f}%[/{color}]",
-            vol_str,
-            p.get("source", ""),
-        )
-    return table
+        prices = get_all_prices()
+        result["prices"] = [p for p in prices if p]
 
+        articles = get_rss_articles()[:10]
+        result["news"] = [{"title": a.get("title", "")[:120],
+                           "source": a.get("source", "")} for a in articles]
 
-def build_news_table(articles, max_rows=8):
-    table = Table(title="📰 Aktuelle News", border_style="yellow", show_header=True)
-    table.add_column("Zeit",   style="dim",   width=7)
-    table.add_column("Quelle", style="cyan",  width=18)
-    table.add_column("Schlagzeile", style="white", width=60)
+        try:
+            import requests
+            r = requests.get(
+                "https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
+                headers={"User-Agent": "Mozilla/5.0"}, timeout=8
+            )
+            if r.status_code == 200:
+                d = r.json()
+                score = round(d.get("fear_and_greed", {}).get("score", 50))
+                if score <= 20:    label = "😱 Extreme Angst"
+                elif score <= 40:  label = "😨 Angst"
+                elif score <= 60:  label = "😐 Neutral"
+                elif score <= 80:  label = "😄 Gier"
+                else:              label = "🤑 Extreme Gier"
+                result["fear_greed"] = {"score": score, "label": label}
+        except Exception:
+            result["fear_greed"] = {"score": 50, "label": "😐 Neutral"}
 
-    for a in articles[:max_rows]:
-        table.add_row(
-            a.get("time", "")[-5:] or "--:--",
-            a.get("source", "")[:18],
-            a.get("title", "")[:60],
-        )
-    return table
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
 
 
-def interactive_menu():
-    """Interaktives Menue fuer manuelle Analysen."""
-    while True:
-        console.print("\n[bold cyan]═══ JARVIS ANALYSE-MENUE ═══[/bold cyan]")
-        console.print("[1] 📊 Aktuelle Kurse anzeigen")
-        console.print("[2] 📰 Neueste Nachrichten")
-        console.print("[3] 🤖 KI-Analyse einer Nachricht")
-        console.print("[4] 🏢 Fundamentaldaten einer Aktie")
-        console.print("[5] 📅 Bevorstehende Earnings")
-        console.print("[6] 🌐 RSS-Feeds lesen")
-        console.print("[0] ❌ Beenden")
-
-        choice = input("\nWaehle eine Option: ").strip()
-
-        if choice == "1":
-            console.print("\n[dim]Lade Kurse...[/dim]")
-            prices = get_all_prices()
-            console.print(build_price_table(prices))
-
-        elif choice == "2":
-            console.print("\n[dim]Lade News...[/dim]")
-            news = get_finnhub_news(limit=15)
-            console.print(build_news_table(news, max_rows=15))
-
-        elif choice == "3":
-            console.print("\n[bold]KI-News-Analyse[/bold]")
-            title   = input("Titel der Nachricht: ")
-            summary = input("Kurze Beschreibung: ")
-            source  = input("Quelle (z.B. Reuters): ")
-            console.print("\n[dim]KI analysiert...[/dim]")
-            analysis = analyze_news(title, summary, source)
-            console.print(Panel(analysis, title="🤖 Jarvis Analyse", border_style="green"))
-
-        elif choice == "4":
-            ticker = input("Ticker eingeben (z.B. AAPL): ").upper()
-            console.print(f"\n[dim]Lade Fundamentaldaten fuer {ticker}...[/dim]")
-            data = get_company_financials(ticker)
-            if data:
-                table = Table(title=f"📈 {ticker} Fundamentaldaten")
-                table.add_column("Kennzahl", style="cyan")
-                table.add_column("Wert",     style="white")
-                metrics = {
-                    "KGV (P/E Ratio)":    data.get("pe_ratio"),
-                    "EPS (Gewinn/Aktie)": data.get("eps"),
-                    "Marktkapital. (Mrd)":data.get("market_cap"),
-                    "52-Wochen-Hoch":     data.get("52w_high"),
-                    "52-Wochen-Tief":     data.get("52w_low"),
-                    "Eigenkapitalrendite":data.get("roe"),
-                }
-                for k, v in metrics.items():
-                    table.add_row(k, str(round(v, 2)) if v else "N/A")
-                console.print(table)
-            else:
-                console.print("[red]Keine Daten gefunden. Bitte Finnhub API-Key pruefen.[/red]")
-
-        elif choice == "5":
-            console.print("\n[dim]Lade Earnings-Kalender...[/dim]")
-            earnings = get_earnings_calendar()
-            if earnings:
-                table = Table(title="📅 Bevorstehende Quartalszahlen")
-                table.add_column("Datum",  style="cyan")
-                table.add_column("Ticker", style="bold white")
-                table.add_column("Uhrzeit",style="dim")
-                for e in earnings:
-                    table.add_row(
-                        e.get("date", ""),
-                        e.get("symbol", ""),
-                        e.get("hour", "N/A"),
-                    )
-                console.print(table)
-            else:
-                console.print("[dim]Keine Earnings in den naechsten 7 Tagen fuer deine Watchlist.[/dim]")
-
-        elif choice == "6":
-            console.print("\n[dim]Lese RSS-Feeds...[/dim]")
-            articles = get_rss_articles()
-            console.print(build_news_table(articles, max_rows=20))
-
-        elif choice == "0":
-            console.print("[yellow]Auf Wiedersehen![/yellow]")
-            sys.exit(0)
-        else:
-            console.print("[red]Ungueltige Eingabe.[/red]")
+@app.route('/')
+def index():
+    return render_template_string(DASHBOARD_HTML)
 
 
-if __name__ == "__main__":
-    console.print(Panel.fit(
-        "[bold cyan]💼 FINANCIAL JARVIS - DASHBOARD[/bold cyan]\n"
-        "[dim]Interaktives Analyse-Terminal[/dim]",
-        border_style="cyan",
-    ))
-    interactive_menu()
+@app.route('/api/data')
+def api_data():
+    data = get_dashboard_data()
+    return jsonify(data)
+
+
+def run_dashboard(port: int = 5000):
+    """Startet das Dashboard in einem separaten Thread"""
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+
+
+if __name__ == '__main__':
+    print(f"Dashboard startet auf http://0.0.0.0:5000")
+    run_dashboard()
