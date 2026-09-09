@@ -536,13 +536,14 @@ def generate_weekly_review() -> str:
                 if len(hist) >= 2:
                     chg = ((hist["Close"].iloc[-1] - hist["Close"].iloc[0]) / hist["Close"].iloc[0]) * 100
                     sign = "+" if chg > 0 else ""
-                    lines.append(f"{"\U0001f7e2" if chg > 0 else "\U0001f534"} **{ticker}**: {sign}{chg:.2f}%")
+                    icon = "🟢" if chg > 0 else "🔴"
+                    lines.append(f"{icon} **{ticker}**: {sign}{chg:.2f}%")
                     (winners if chg > 0 else losers).append(f"{ticker}({sign}{chg:.1f}%)")
             except Exception:
                 pass
         prompt = (
-            f"Wochenanalyse in 3 Saetzen. Gewinner: {", ".join(winners[:3])}. "
-            f"Verlierer: {", ".join(losers[:3])}."
+            "Wochenanalyse in 3 Saetzen. Gewinner: " + ", ".join(winners[:3]) + ". "
+            "Verlierer: " + ", ".join(losers[:3]) + "."
         )
         ai_summary = chat_with_jarvis(prompt, WATCHLIST_STOCKS + WATCHLIST_CRYPTO)
         week = datetime.now(SWISS_TZ).strftime("KW%V %Y")
