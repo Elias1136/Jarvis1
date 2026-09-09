@@ -844,11 +844,11 @@ async def sectors_cmd(ctx):
         if not sectors:
             await ctx.send("Keine Sektordaten verfuegbar.")
             return
-        lines = [
-            f"{"\U0001f7e2" if s["change_pct"] > 0 else "\U0001f534"} **{s["sector"]}**: "
-            f"{"++" if s["change_pct"] > 0 else ""}{s["change_pct"]:.2f}%"
-            for s in sectors
-        ]
+        lines = []
+        for s in sectors:
+            icon = "🟢" if s["change_pct"] > 0 else "🔴"
+            sign = "+" if s["change_pct"] > 0 else ""
+            lines.append(f"{icon} **{s['sector']}**: {sign}{s['change_pct']:.2f}%")
         await ctx.send("\U0001f3ed **SEKTOR-ANALYSE:**\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n" + "\n".join(lines))
 
 
@@ -940,10 +940,11 @@ async def analyze_cmd(ctx, ticker: str):
         news_str = " | ".join([n["title"] for n in news[:3]]) if news else "keine News"
         pe = data.get("pe_ratio", "unbekannt") if data else "unbekannt"
         p = fetch_any_ticker_price(ticker)
-        price_info = (
-            f"Aktueller Kurs: ${p['price']:,.2f} ({"++" if p['change_pct'] > 0 else ""}{p['change_pct']:.2f}%)"
-            if p else ""
-        )
+        if p:
+            chg_sign = "+" if p["change_pct"] > 0 else ""
+            price_info = f"Aktueller Kurs: ${p['price']:,.2f} ({chg_sign}{p['change_pct']:.2f}%)"
+        else:
+            price_info = ""
         response = chat_with_jarvis(
             f"Analysiere {ticker} als Finanzberater. {price_info} KGV: {pe}. News: {news_str}. "
             f"Kaufen, halten oder verkaufen?",
