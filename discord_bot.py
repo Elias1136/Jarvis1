@@ -737,7 +737,7 @@ async def on_message(message):
                 icon = "\U0001fa99" if is_crypto else "\U0001f4c8"
                 await message.channel.send(
                     f"\u2705 **{ticker}** wurde zur Watchlist hinzugefuegt! {icon}\n"
-                    f"Aktuelle Watchlist: {", ".join(WATCHLIST_STOCKS)} | {", ".join(WATCHLIST_CRYPTO)}"
+                    f"Aktuelle Watchlist: {', '.join(WATCHLIST_STOCKS)} | {', '.join(WATCHLIST_CRYPTO)}"
                 )
             else:
                 await message.channel.send(f"\u2139\ufe0f **{ticker}** ist bereits auf der Watchlist!")
@@ -757,7 +757,7 @@ async def on_message(message):
                 _reload_config_watchlists()
                 await message.channel.send(
                     f"\U0001f5d1\ufe0f **{ticker}** wurde von der Watchlist entfernt!\n"
-                    f"Aktuelle Watchlist: {", ".join(WATCHLIST_STOCKS)} | {", ".join(WATCHLIST_CRYPTO)}"
+                    f"Aktuelle Watchlist: {', '.join(WATCHLIST_STOCKS)} | {', '.join(WATCHLIST_CRYPTO)}"
                 )
             else:
                 await message.channel.send(f"\u274c **{ticker}** war nicht auf der Watchlist.")
@@ -982,7 +982,7 @@ async def chart_cmd(ctx, ticker: str, period: str = "3mo"):
     ticker = ticker.upper()
     valid_periods = {"1mo", "3mo", "6mo", "1y", "2y", "5y"}
     if period not in valid_periods:
-        await ctx.send(f"\u274c Ungueltige Period. Erlaubt: {", ".join(sorted(valid_periods))}")
+        await ctx.send(f"\u274c Ungueltige Period. Erlaubt: {', '.join(sorted(valid_periods))}")
         return
     async with ctx.typing():
         buf = generate_chart(ticker, period)
@@ -1003,7 +1003,7 @@ async def portfolio_cmd(ctx, period: str = "1mo"):
     """
     valid_periods = {"1mo", "3mo", "6mo", "1y"}
     if period not in valid_periods:
-        await ctx.send(f"\u274c Ungueltige Period. Erlaubt: {", ".join(sorted(valid_periods))}")
+        await ctx.send(f"\u274c Ungueltige Period. Erlaubt: {', '.join(sorted(valid_periods))}")
         return
     async with ctx.typing():
         tickers = WATCHLIST_STOCKS[:10]
@@ -1012,7 +1012,7 @@ async def portfolio_cmd(ctx, period: str = "1mo"):
             await ctx.send("\u274c Konnte keinen Portfolio-Chart erstellen.")
             return
         await ctx.send(
-            f"\U0001f4c8 **Portfolio Performance ({period})**\nVergleich: {", ".join(tickers)}",
+            f"\U0001f4c8 **Portfolio Performance ({period})**\nVergleich: {', '.join(tickers)}",
             file=discord.File(buf, filename=f"portfolio_{period}.png"),
         )
 
@@ -1022,8 +1022,8 @@ async def watchlist_cmd(ctx):
     """Zeigt die aktuelle Watchlist."""
     await ctx.send(
         f"\U0001f4cb **Watchlist:**\n"
-        f"\U0001f4c8 **Aktien:** {", ".join(WATCHLIST_STOCKS)}\n"
-        f"\U0001fa99 **Krypto:** {", ".join(WATCHLIST_CRYPTO)}\n\n"
+        f"\U0001f4c8 **Aktien:** {', '.join(WATCHLIST_STOCKS)}\n"
+        f"\U0001fa99 **Krypto:** {', '.join(WATCHLIST_CRYPTO)}\n\n"
         f"_Tipp: Schreib 'fuege AAPL hinzu' oder 'entferne TSLA' um die Liste anzupassen!_"
     )
 
